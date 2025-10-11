@@ -8,6 +8,9 @@ import {
 import productCacheModel from "../productCache/productCacheModel";
 import toppingCacheModel from "../toppingCache/toppingCacheModel";
 import couponModel from "../coupon/couponModel";
+import mongoose from "mongoose";
+import orderModel from "./orderModel";
+import { OrderStatus, PaymentStatus } from "./orderTypes";
 
 export class OrderController {
   constructor() {}
@@ -48,7 +51,24 @@ export class OrderController {
 
     const finalTotal = priceAfterDiscount + taxes + DELIVERY_CHARGES;
 
-    return res.json({ finalTotal });
+    const newOrder = await orderModel.create([
+      {
+        cart,
+        address,
+        comment,
+        customerId,
+        deliveryCharges: DELIVERY_CHARGES,
+        discount: discountAmount,
+        taxes,
+        tenantId,
+        total: finalTotal,
+        paymentMode,
+        orderStatus: OrderStatus.RECEIVED,
+        paymentStatus: PaymentStatus.PENDING,
+      },
+    ]);
+
+    return res.json({ newOrder: newOrder });
   };
 
   private calculateTotal = async (cart: CartItem[]) => {
