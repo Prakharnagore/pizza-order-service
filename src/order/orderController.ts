@@ -19,9 +19,14 @@ import {
 import createHttpError from "http-errors";
 import customerModel from "../customer/customerModel";
 import idempotencyModel from "../idempotency/idempotencyModel";
+import { PaymentGW } from "../payment/paymentTypes";
+import { MessageBroker } from "../types/broker";
 
 export class OrderController {
-  constructor() {}
+  constructor(
+    private paymentGw: PaymentGW,
+    private broker: MessageBroker,
+  ) {}
 
   create = async (req: Request, res: Response, next: NextFunction) => {
     const {
@@ -105,6 +110,43 @@ export class OrderController {
         await session.endSession();
       }
     }
+
+    // Payment processing...
+
+    // todo: Error handling...
+    const customer = await customerModel.findOne({
+      _id: newOrder[0].customerId,
+    });
+
+    // todo: add logging
+    const brokerMessage = {
+      event_type: OrderEvents.ORDER_CREATE,
+      data: { ...newOrder[0], customerId: customer },
+    };
+
+    if (paymentMode === PaymentMode.CARD) {
+      const session = await this.paymentGw.createSession({
+        amount: finalTotal,
+        orderId: newOrder[0]._id.toString(),
+        tenantId: tenantId,
+        currency: "inr",
+        idempotenencyKey: idempotencyKey as string,
+      });
+
+      await this.broker.sendMessage(
+        "order",
+        JSON.stringify(brokerMessage),
+        newOrder[0]._id.toString(),
+      );
+
+      return res.json({ paymentUrl: session.paymentUrl });
+    }
+
+    await this.broker.sendMessage(
+      "order",
+      JSON.stringify(brokerMessage),
+      newOrder[0]._id.toString(),
+    );
 
     // todo: Update order document -> paymentId -> sessionId
     return res.json({ paymentUrl: null });
