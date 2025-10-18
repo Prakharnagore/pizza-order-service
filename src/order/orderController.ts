@@ -1,14 +1,15 @@
 import { NextFunction, Request, Response } from "express";
+import { Request as AuthRequest } from "express-jwt";
 import {
   CartItem,
   ProductPricingCache,
+  ROLES,
   Topping,
   ToppingPriceCache,
 } from "../types";
 import productCacheModel from "../productCache/productCacheModel";
 import toppingCacheModel from "../toppingCache/toppingCacheModel";
 import couponModel from "../coupon/couponModel";
-import mongoose from "mongoose";
 import orderModel from "./orderModel";
 import {
   OrderEvents,
@@ -16,11 +17,12 @@ import {
   PaymentMode,
   PaymentStatus,
 } from "./orderTypes";
-import createHttpError from "http-errors";
-import customerModel from "../customer/customerModel";
 import idempotencyModel from "../idempotency/idempotencyModel";
+import mongoose from "mongoose";
+import createHttpError from "http-errors";
 import { PaymentGW } from "../payment/paymentTypes";
 import { MessageBroker } from "../types/broker";
+import customerModel from "../customer/customerModel";
 
 export class OrderController {
   constructor(
@@ -155,11 +157,16 @@ export class OrderController {
   private calculateTotal = async (cart: CartItem[]) => {
     const productIds = cart.map((item) => item._id);
 
+    console.log("productIds", productIds);
+
+    // todo: proper error handling..
     const productPricings = await productCacheModel.find({
       productId: {
         $in: productIds,
       },
     });
+
+    console.log("productPricings", productPricings);
 
     // todo: What will happen if product does not exists in the cache
     // 1. call catalog service.
@@ -220,9 +227,18 @@ export class OrderController {
 
   private getCurrentToppingPrice = (
     topping: Topping,
-    toppingsPricings: ToppingPriceCache[],
+    toppingPricings: ToppingPriceCache[],
   ) => {
-    return toppingsPricings.find((t) => t.toppingId === topping.id)?.price || 0;
+    const currentTopping = toppingPricings.find(
+      (current) => topping.id === current.toppingId,
+    );
+
+    if (!currentTopping) {
+      // todo: Make sure the item is in the cache else, maybe call catalog service.
+      return topping.price;
+    }
+
+    return currentTopping.price;
   };
 
   private getDiscountPercentage = async (
