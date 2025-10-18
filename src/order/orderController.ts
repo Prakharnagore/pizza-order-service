@@ -177,6 +177,60 @@ export class OrderController {
     return res.json(orders);
   };
 
+  getSingle = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    const orderId = req.params.orderId;
+    const { sub: userId, role, tenant: tenantId } = req.auth;
+
+    const fields = req.query.fields
+      ? req.query.fields.toString().split(",")
+      : []; // ["orderStatus", "paymentStatus"]
+
+    const projection = fields.reduce(
+      (acc, field) => {
+        acc[field] = 1;
+        return acc;
+      },
+      { customerId: 1 },
+    );
+
+    // {
+    //   orderStatus: 1,
+    //   PaymentStatus: 1,
+    // }
+
+    const order = await orderModel
+      .findOne({ _id: orderId }, projection)
+      .populate("customerId")
+      .exec();
+    if (!order) {
+      return next(createHttpError(400, "Order does not exists."));
+    }
+
+    // What roles can access this endpoint: Admin, manager (for their own restaurant), customer (own order)
+    if (role === "admin") {
+      return res.json(order);
+    }
+
+    const myRestaurantOrder = order.tenantId === tenantId;
+    if (role === "manager" && myRestaurantOrder) {
+      return res.json(order);
+    }
+
+    if (role === "customer") {
+      const customer = await customerModel.findOne({ userId });
+
+      if (!customer) {
+        return next(createHttpError(400, "No customer found."));
+      }
+
+      if (order.customerId._id.toString() === customer._id.toString()) {
+        return res.json(order);
+      }
+    }
+
+    return next(createHttpError(403, "Operation not permitted."));
+  };
+
   private calculateTotal = async (cart: CartItem[]) => {
     const productIds = cart.map((item) => item._id);
 
